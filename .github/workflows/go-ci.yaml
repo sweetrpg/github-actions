@@ -1,0 +1,90 @@
+name: Go CI
+
+on:
+  workflow_call:
+    inputs:
+      mongodb-version:
+        description: "MongoDB version to start for DB-backed tests. Empty to skip."
+        type: string
+        default: ""
+      test-env:
+        description: "JSON object of extra env vars for the test step (e.g. TEST_DB_URI)."
+        type: string
+        default: "{}"
+      matrix:
+        description: "JSON array of `{name, os}` matrix entries to validate on. Defaults to Linux."
+        type: string
+        default: >-
+          [{"name": "Linux", "os": "ubuntu-latest"}]
+      publish-coverage:
+        description: "Publish the coverage report to GitHub Pages."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency: ci
+
+jobs:
+  test:
+    name: Validate on ${{ matrix.entry.name }}
+
+    runs-on: ${{ matrix.entry.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        entry: ${{ fromJson(inputs.matrix) }}
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install Go
+        id: install_go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        id: check_fmt
+        run: |
+          test -z "$(gofmt -l .)"
+
+      - name: Vet
+        id: vet
+        run: |
+          go vet ./...
+
+      - name: Lint
+        id: lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+      - name: start-mongodb
+        if: inputs.mongodb-version != ''
+        uses: supercharge/mongodb-github-action@1.12.1
+        with:
+          mongodb-version: ${{ inputs.mongodb-version }}
+
+      - name: Test
+        id: test
+        env: ${{ fromJson(inputs.test-env) }}
+        run: |
+          go test -race -coverprofile coverage.out ./...
+          go tool cover -func coverage.out
+          mkdir coverage
+          go tool cover -html coverage.out -o coverage/coverage.html
+
+      - name: Publish coverage
+        if: inputs.publish-coverage
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./coverage

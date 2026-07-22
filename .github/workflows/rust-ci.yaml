@@ -1,0 +1,98 @@
+name: Rust CI
+
+on:
+  workflow_call:
+    inputs:
+      test-args:
+        description: "Extra arguments appended to the primary `cargo test` invocation."
+        type: string
+        default: "--all-features"
+      no-default-features-test:
+        description: "Also run `cargo test --no-default-features`."
+        type: boolean
+        default: false
+      doc-test:
+        description: "Also run `cargo test --doc`."
+        type: boolean
+        default: false
+      doc-build:
+        description: "Also run `cargo doc --no-deps` with warnings as errors."
+        type: boolean
+        default: false
+      matrix:
+        description: >
+          JSON array of `{name, os}` matrix entries to validate on. Defaults to Linux and
+          Apple Silicon macOS.
+        type: string
+        default: >-
+          [{"name": "Linux", "os": "ubuntu-latest"},
+           {"name": "macOS (Apple Silicon)", "os": "macos-latest"}]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Validate on ${{ matrix.entry.name }}
+
+    runs-on: ${{ matrix.entry.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        entry: ${{ fromJson(inputs.matrix) }}
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          show-progress: true
+          submodules: recursive
+
+      - name: Install Rust
+        id: install_rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Setup Rust cache
+        id: rust_cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        id: check_fmt
+        run: |
+          cargo fmt --check
+
+      - name: Clippy
+        id: clippy
+        run: |
+          cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test
+        id: test
+        run: |
+          cargo test ${{ inputs.test-args }}
+
+      - name: Test (no default features)
+        id: test_no_default_features
+        if: inputs.no-default-features-test
+        run: |
+          cargo test --no-default-features
+
+      - name: Test (doc)
+        id: test_doc
+        if: inputs.doc-test
+        run: |
+          cargo test --doc
+
+      - name: Docs
+        id: docs
+        if: inputs.doc-build
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          cargo doc --no-deps
