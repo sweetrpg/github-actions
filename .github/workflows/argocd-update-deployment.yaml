@@ -1,0 +1,119 @@
+name: ArgoCD Update Deployment
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: "Image name as it appears in the Application's kustomize.images entry (e.g. 'catalog-api')."
+        type: string
+        required: true
+      image-ref:
+        description: "Full image ref to deploy, e.g. 'ghcr.io/sweetrpg/catalog-api:v0.2.1'. Defaults to ghcr.io/sweetrpg/<image-name>:<tag>."
+        type: string
+        default: ""
+      tag:
+        description: "Tag to deploy when image-ref isn't given directly. Defaults to the ref that triggered the caller (e.g. github.ref_name on a tag push)."
+        type: string
+        default: ""
+      manifest-path:
+        description: "Path within the argocd repo to the Application manifest to update."
+        type: string
+        required: true
+      argocd-owner:
+        description: "Org/user that owns the argocd repo."
+        type: string
+        default: "sweetrpg"
+      argocd-repo-name:
+        description: "Bare name (no owner) of the repo containing the Application manifests."
+        type: string
+        default: "argocd"
+      target-branch:
+        description: "Branch in the argocd repo to commit and push to."
+        type: string
+        default: "master"
+    secrets:
+      SRPG_CI_APP_ID:
+        required: true
+      SRPG_CI_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  update-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve image ref
+        id: image
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+          IMAGE_REF: ${{ inputs.image-ref }}
+          TAG: ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
+        run: |
+          if [ -n "$IMAGE_REF" ]; then
+            REF="$IMAGE_REF"
+          else
+            REF="ghcr.io/sweetrpg/${IMAGE_NAME}:${TAG}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.SRPG_CI_APP_ID }}
+          private-key: ${{ secrets.SRPG_CI_PRIVATE_KEY }}
+          owner: ${{ inputs.argocd-owner }}
+          repositories: ${{ inputs.argocd-repo-name }}
+
+      - name: Checkout argocd
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.argocd-owner }}/${{ inputs.argocd-repo-name }}
+          ref: ${{ inputs.target-branch }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Matches by image name (the part before "=" in each kustomize.images entry) rather
+      # than a hardcoded array index, so this doesn't silently target the wrong entry if a
+      # manifest ever lists more than one image. Fails loudly instead of silently doing
+      # nothing if the manifest path or matching entry doesn't exist - a prior version of
+      # this step (inlined per-repo, before this was factored out into a shared workflow)
+      # errored out on a stale hardcoded path without anyone noticing, leaving a service
+      # running an old image for two releases.
+      - name: Bump deployed image tag
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          MANIFEST_PATH: ${{ inputs.manifest-path }}
+        run: |
+          if [ ! -f "$MANIFEST_PATH" ]; then
+            echo "::error::Manifest not found at '$MANIFEST_PATH' in ${{ inputs.argocd-owner }}/${{ inputs.argocd-repo-name }}@${{ inputs.target-branch }}. Did it move?"
+            exit 1
+          fi
+
+          MATCH_COUNT=$(yq '[.spec.source.kustomize.images[] | select(test("^" + strenv(IMAGE_NAME) + "="))] | length' "$MANIFEST_PATH")
+          if [ "$MATCH_COUNT" -eq 0 ]; then
+            echo "::error::No kustomize.images entry starting with '${IMAGE_NAME}=' found in $MANIFEST_PATH."
+            exit 1
+          fi
+
+          yq -i '(.spec.source.kustomize.images[] | select(test("^" + strenv(IMAGE_NAME) + "="))) = (strenv(IMAGE_NAME) + "=" + strenv(IMAGE_REF))' "$MANIFEST_PATH"
+
+      - name: Commit and push
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          MANIFEST_PATH: ${{ inputs.manifest-path }}
+          TARGET_BRANCH: ${{ inputs.target-branch }}
+          GIT_AUTHOR_NAME: SweetRPG CI
+          GIT_AUTHOR_EMAIL: ci@sweetrpg.com
+          GIT_COMMITTER_NAME: SweetRPG CI
+          GIT_COMMITTER_EMAIL: ci@sweetrpg.com
+        run: |
+          git add "$MANIFEST_PATH"
+          if git diff --cached --quiet; then
+            echo "No change to deploy"
+            exit 0
+          fi
+          git commit -m "chore(${{ inputs.image-name }}): deploy ${IMAGE_REF}"
+          git push origin "HEAD:${TARGET_BRANCH}"
