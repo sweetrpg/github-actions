@@ -16,19 +16,19 @@ on:
         type: string
         default: ""
       manifest-path:
-        description: "Path within the argocd repo to the Application manifest to update."
+        description: "Path within the manifests repo to the Application manifest to update."
         type: string
         required: true
       argocd-owner:
-        description: "Org/user that owns the argocd repo."
+        description: "Org/user that owns the manifests repo."
         type: string
         default: "sweetrpg"
       argocd-repo-name:
         description: "Bare name (no owner) of the repo containing the Application manifests."
         type: string
-        default: "argocd"
+        default: "kubernetes"
       target-branch:
-        description: "Branch in the argocd repo to commit and push to."
+        description: "Branch in the manifests repo to commit and push to."
         type: string
         default: "master"
     secrets:
@@ -67,7 +67,7 @@ jobs:
           owner: ${{ inputs.argocd-owner }}
           repositories: ${{ inputs.argocd-repo-name }}
 
-      - name: Checkout argocd
+      - name: Checkout manifests repo
         uses: actions/checkout@v7
         with:
           repository: ${{ inputs.argocd-owner }}/${{ inputs.argocd-repo-name }}
