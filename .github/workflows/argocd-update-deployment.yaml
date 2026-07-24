@@ -59,10 +59,10 @@ jobs:
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App token
-        id: app-token
+        id: app_token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.SRPG_CI_APP_ID }}
+          client-id: ${{ secrets.SRPG_CI_APP_ID }}
           private-key: ${{ secrets.SRPG_CI_PRIVATE_KEY }}
           owner: ${{ inputs.argocd-owner }}
           repositories: ${{ inputs.argocd-repo-name }}
@@ -72,7 +72,7 @@ jobs:
         with:
           repository: ${{ inputs.argocd-owner }}/${{ inputs.argocd-repo-name }}
           ref: ${{ inputs.target-branch }}
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app_token.outputs.token }}
 
       # Matches by image name (the part before "=" in each kustomize.images entry) rather
       # than a hardcoded array index, so this doesn't silently target the wrong entry if a
@@ -103,6 +103,7 @@ jobs:
       - name: Commit and push
         env:
           IMAGE_REF: ${{ steps.image.outputs.ref }}
+          IMAGE_NAME: ${{ inputs.image-name }}
           MANIFEST_PATH: ${{ inputs.manifest-path }}
           TARGET_BRANCH: ${{ inputs.target-branch }}
           GIT_AUTHOR_NAME: SweetRPG CI
@@ -115,5 +116,5 @@ jobs:
             echo "No change to deploy"
             exit 0
           fi
-          git commit -m "chore(${{ inputs.image-name }}): deploy ${IMAGE_REF}"
+          git commit -m "chore(${IMAGE_NAME}): deploy ${IMAGE_REF}"
           git push origin "HEAD:${TARGET_BRANCH}"
