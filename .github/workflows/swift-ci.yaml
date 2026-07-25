@@ -1,0 +1,96 @@
+name: Swift CI
+
+on:
+  workflow_call:
+    inputs:
+      swift-version:
+        description: "Swift toolchain version to build and test with."
+        type: string
+        default: "6.0"
+      matrix:
+        description: "JSON array of `{name, os}` matrix entries to validate on. Defaults to Linux."
+        type: string
+        default: >-
+          [{"name": "Linux", "os": "ubuntu-latest"}]
+      test-args:
+        description: "Extra arguments appended to the `swift test` invocation."
+        type: string
+        default: ""
+      publish-coverage:
+        description: "Publish the coverage report to GitHub Pages. Best-effort: a coverage
+          export failure warns but does not fail CI, since the exact binary/profile paths
+          Swift emits vary by platform and toolchain version."
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency: ci
+
+jobs:
+  test:
+    name: Validate on ${{ matrix.entry.name }}
+
+    runs-on: ${{ matrix.entry.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        entry: ${{ fromJson(inputs.matrix) }}
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install Swift
+        id: install_swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ inputs.swift-version }}
+
+      - name: Check formatting
+        id: check_fmt
+        run: |
+          swift format lint --recursive --strict Sources Tests
+
+      - name: Build
+        id: build
+        run: |
+          swift build --build-tests
+
+      - name: Test
+        id: test
+        run: |
+          swift test --enable-code-coverage ${{ inputs.test-args }}
+
+      # Best-effort: locates the .xctest binary swift test just produced and exports an
+      # lcov report from its embedded coverage data, then renders HTML via genhtml (same
+      # lcov toolchain already available on the ubuntu-latest runner image). Swift's exact
+      # output layout has moved between toolchain versions before, so a failure here warns
+      # instead of failing the whole job - it's diagnostic tooling, not the test itself.
+      - name: Export coverage
+        id: coverage
+        if: inputs.publish-coverage
+        continue-on-error: true
+        run: |
+          BIN_PATH="$(swift build --show-bin-path)"
+          XCTEST_BIN=$(find "$BIN_PATH" -name "*.xctest" -type f | head -n1)
+          if [ -z "$XCTEST_BIN" ]; then
+            XCTEST_BIN=$(find "$BIN_PATH" -name "*.xctest" -type d | head -n1)/Contents/MacOS/*
+          fi
+          llvm-cov export -format=lcov "$XCTEST_BIN" \
+            -instr-profile="$BIN_PATH/codecov/default.profdata" > coverage.lcov
+          mkdir coverage
+          genhtml coverage.lcov --output-directory coverage
+
+      - name: Publish coverage
+        if: inputs.publish-coverage && steps.coverage.outcome == 'success'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./coverage

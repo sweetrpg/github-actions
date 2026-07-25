@@ -1,0 +1,103 @@
+name: Swift Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Existing tag to (re-)run the release for, e.g. v0.1.0. Only used for manual dispatch by the caller."
+        type: string
+        default: ""
+      swift-version:
+        description: "Swift toolchain version to test with."
+        type: string
+        default: "6.0"
+      test-args:
+        description: "Extra arguments appended to the pre-publish `swift test` invocation."
+        type: string
+        default: ""
+      merge-back-branch:
+        description: "Branch to merge the release ref back into after publishing (e.g. develop). Empty to skip."
+        type: string
+        default: "develop"
+    secrets:
+      SRPG_CI_APP_ID:
+        required: true
+      SRPG_CI_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: write
+
+concurrency: release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate token
+        id: ci_token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.SRPG_CI_APP_ID }}
+          private-key: ${{ secrets.SRPG_CI_PRIVATE_KEY }}
+
+      - name: Resolve tag
+        id: resolve_tag
+        run: |
+          echo "tag=${{ inputs.tag != '' && inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.resolve_tag.outputs.tag }}
+          fetch-depth: 0 # full history required for git-cliff
+          fetch-tags: true
+          show-progress: true
+          submodules: recursive
+
+      - name: Install Swift
+        id: install_swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ inputs.swift-version }}
+
+      - name: Install git-cliff
+        id: install_git_cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Test
+        id: test
+        run: |
+          swift test ${{ inputs.test-args }}
+
+      # A Swift package is fetchable via SwiftPM the moment its tag exists on the remote -
+      # there is no registry push step equivalent to `cargo publish`, same as Go modules.
+      - name: Generate changelog for this tag
+        id: changelog
+        run: |
+          git-cliff --current --strip header -o RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        id: github_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.resolve_tag.outputs.tag }}
+          body_path: RELEASE_NOTES.md
+
+      # Uses the "Merge a branch" REST API rather than a local `git merge` + `git push` -
+      # see go-release.yaml's identical step for why (signed-commit requirement on the
+      # merge-back branch, and a bypass actor sidestepping an unsatisfiable status check
+      # on a commit that never existed before this run).
+      - name: Merge back to ${{ inputs.merge-back-branch }}
+        id: merge_back
+        if: inputs.merge-back-branch != ''
+        env:
+          GH_TOKEN: ${{ steps.ci_token.outputs.token }}
+        run: |
+          gh api repos/${{ github.repository }}/merges \
+            -f base=${{ inputs.merge-back-branch }} \
+            -f head=master \
+            -f commit_message="chore(release): merge master into ${{ inputs.merge-back-branch }} after ${{ steps.resolve_tag.outputs.tag }}"
