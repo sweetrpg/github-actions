@@ -10,11 +10,11 @@ on:
       python-version:
         description: "Python version to test with."
         type: string
-        default: "3.11"
+        default: "3.14"
       install-command:
         description: "Command installing test dependencies + the package itself before testing."
         type: string
-        default: "pip install -r requirements/tests.txt -e ."
+        default: "uv pip install --system -r requirements/tests.txt -e ."
       test-command:
         description: "Command re-verifying the tagged commit before publishing a GitHub Release."
         type: string
@@ -73,7 +73,7 @@ jobs:
 
       - name: Install Python
         id: install_python
-        uses: actions/setup-python@v6
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ inputs.python-version }}
 
