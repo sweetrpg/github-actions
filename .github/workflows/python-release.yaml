@@ -14,7 +14,7 @@ on:
       install-command:
         description: "Command installing test dependencies + the package itself before testing."
         type: string
-        default: "uv pip install --system -r requirements/tests.txt -e ."
+        default: "uv pip install -r requirements/tests.txt -e ."
       test-command:
         description: "Command re-verifying the tagged commit before publishing a GitHub Release."
         type: string
