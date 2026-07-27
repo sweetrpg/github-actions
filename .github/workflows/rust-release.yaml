@@ -11,11 +11,19 @@ on:
         description: "Arguments for the pre-publish `cargo test` invocation."
         type: string
         default: "--all-features"
+      publish-to-crates-io:
+        description: >
+          Publish the crate to crates.io. Set false for a deployable service with no crates.io
+          presence of its own (e.g. a binary shipped only as a container image via
+          docker-build.yml + argocd-update-deployment.yaml) - true by default to preserve
+          existing library-crate callers (common.rs, model-core.rs, etc.).
+        type: boolean
+        default: true
       trusted-publishing:
         description: >
           Use crates.io OIDC trusted publishing (rust-lang/crates-io-auth-action) instead of
           a static token. Requires the crate to already exist on crates.io and be configured
-          as a trusted publisher there.
+          as a trusted publisher there. Ignored when publish-to-crates-io is false.
         type: boolean
         default: true
       merge-back-branch:
@@ -74,18 +82,18 @@ jobs:
 
       - name: Authenticate with crates.io (trusted publishing)
         id: crates_io_auth
-        if: inputs.trusted-publishing
+        if: inputs.publish-to-crates-io && inputs.trusted-publishing
         uses: rust-lang/crates-io-auth-action@v1
 
       - name: Publish to crates.io (trusted publishing)
-        if: inputs.trusted-publishing
+        if: inputs.publish-to-crates-io && inputs.trusted-publishing
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
         run: |
           cargo publish
 
       - name: Publish to crates.io (token)
-        if: ${{ !inputs.trusted-publishing }}
+        if: inputs.publish-to-crates-io && !inputs.trusted-publishing
         run: |
           cargo publish --token ${{ secrets.CRATES_API_KEY }}
 
