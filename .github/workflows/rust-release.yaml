@@ -34,6 +34,12 @@ on:
       CRATES_API_KEY:
         description: "crates.io API token. Required only when trusted-publishing is false."
         required: false
+      SRPG_CI_APP_ID:
+        description: "Required only when merge-back-branch is non-empty."
+        required: false
+      SRPG_CI_PRIVATE_KEY:
+        description: "Required only when merge-back-branch is non-empty."
+        required: false
 
 permissions:
   contents: write
@@ -109,14 +115,30 @@ jobs:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           body_path: RELEASE_NOTES.md
 
+      - name: Generate token
+        id: ci_token
+        if: inputs.merge-back-branch != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.SRPG_CI_APP_ID }}
+          private-key: ${{ secrets.SRPG_CI_PRIVATE_KEY }}
+
+      # Uses the "Merge a branch" REST API instead of a local `git merge` + `git push`: the
+      # merge-back branch's ruleset requires every commit to be signed, and a merge commit built
+      # by a local git client has no signature attached. A merge created server-side through this
+      # endpoint is authored and signed by GitHub itself (the same way a PR's merge button
+      # produces a "Verified" commit), so it satisfies the rule without needing a signing key in
+      # CI. It also sidesteps a required status check on the merge-back branch: a brand new merge
+      # commit has never existed on GitHub before, so no check could have run against it yet --
+      # pushing as the CI app (a configured bypass actor) skips that unsatisfiable check instead
+      # of racing it. See go-release.yaml's identical step for the same fix applied there first.
       - name: Merge back to ${{ inputs.merge-back-branch }}
         id: merge_back
         if: inputs.merge-back-branch != ''
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ci_token.outputs.token }}
         run: |
-          git config --global user.email "ci@sweetrpg.com"
-          git config --global user.name "SweetRPG CI"
-          git checkout ${{ inputs.merge-back-branch }}
-          git merge origin/master
-          git push origin ${{ inputs.merge-back-branch }}
+          gh api repos/${{ github.repository }}/merges \
+            -f base=${{ inputs.merge-back-branch }} \
+            -f head=master \
+            -f commit_message="chore(release): merge master into ${{ inputs.merge-back-branch }} after ${{ steps.resolve_tag.outputs.tag }}"
