@@ -32,6 +32,10 @@ on:
           does not block merges."
         type: string
         default: "0"
+      publish-coverage:
+        description: "Publish the coverage report to GitHub Pages."
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -128,27 +132,27 @@ jobs:
           awk -v pct="$PCT" -v threshold="${{ inputs.coverage-threshold }}" \
             'BEGIN { exit !(pct+0 >= threshold+0) }'
 
-      # Push-only: PR runs shouldn't write commits. Writes a shields.io endpoint-schema
-      # JSON badge and commits it back so READMEs can reference it via
-      # img.shields.io/endpoint. continue-on-error since a badge push racing another
-      # push to the same branch is a rejected, not fatal, non-fast-forward.
+      # Written into coverage/ so the Publish step below carries it to GitHub Pages
+      # alongside the HTML report - avoids committing to the (protected) source branch
+      # entirely.
       - name: Coverage badge
         id: coverage_badge
-        if: github.event_name == 'push' && matrix.entry.os == 'ubuntu-latest'
+        if: matrix.entry.os == 'ubuntu-latest'
         continue-on-error: true
         run: |
           LINE_RATE=$(grep -oE '<coverage [^>]*line-rate="[0-9.]+"' coverage/cobertura.xml \
             | grep -oE 'line-rate="[0-9.]+"' | grep -oE '[0-9.]+')
           PCT=$(awk -v r="$LINE_RATE" 'BEGIN { printf "%.2f", r*100 }')
           COLOR=$(awk -v p="$PCT" 'BEGIN { if (p>=80) print "brightgreen"; else if (p>=50) print "yellow"; else print "red" }')
-          mkdir -p .github/badges
           printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
-            "$PCT" "$COLOR" > .github/badges/coverage.json
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/badges/coverage.json
-          git diff --cached --quiet || git commit -m "chore: update coverage badge [skip ci]"
-          git push origin "HEAD:${{ github.ref_name }}"
+            "$PCT" "$COLOR" > coverage/coverage-badge.json
+
+      - name: Publish coverage
+        if: inputs.publish-coverage && matrix.entry.os == 'ubuntu-latest'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./coverage
 
       - name: Test (no default features)
         id: test_no_default_features
