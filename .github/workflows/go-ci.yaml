@@ -28,6 +28,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -122,22 +123,35 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./coverage
 
-      # Push-only: PR runs shouldn't write commits. Writes a shields.io endpoint-schema
-      # JSON badge and commits it back so READMEs can reference it via
-      # img.shields.io/endpoint. continue-on-error since a badge push racing another
-      # push to the same branch is a rejected, not fatal, non-fast-forward.
+      # Push-only: PR runs shouldn't open badge-update PRs of their own. Writes a
+      # shields.io endpoint-schema JSON badge; if it changed, opens a small PR (target
+      # branches are protected - no direct pushes allowed) and enables auto-merge, so it
+      # lands once its own required checks pass. continue-on-error: badge updates are
+      # best-effort, never worth failing the job over.
       - name: Coverage badge
         id: coverage_badge
         if: github.event_name == 'push'
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PCT=$(go tool cover -func coverage.out | tail -1 | grep -oE '[0-9]+\.[0-9]+')
           COLOR=$(awk -v p="$PCT" 'BEGIN { if (p>=80) print "brightgreen"; else if (p>=50) print "yellow"; else print "red" }')
           mkdir -p .github/badges
           printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
             "$PCT" "$COLOR" > .github/badges/coverage.json
+          if git diff --quiet -- .github/badges/coverage.json; then
+            echo "Badge unchanged, skipping"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          BRANCH="coverage-badge/${{ github.run_id }}"
+          git checkout -b "$BRANCH"
           git add .github/badges/coverage.json
-          git diff --cached --quiet || git commit -m "chore: update coverage badge [skip ci]"
-          git push origin "HEAD:${{ github.ref_name }}"
+          git commit -m "chore: update coverage badge [skip ci]"
+          git push origin "$BRANCH"
+          PR_URL=$(gh pr create --title "chore: update coverage badge" \
+            --body "Automated coverage badge update ($PCT%)." \
+            --base "${{ github.ref_name }}" --head "$BRANCH")
+          gh pr merge "$PR_URL" --squash --auto --delete-branch

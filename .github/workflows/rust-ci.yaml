@@ -35,6 +35,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   test:
@@ -136,6 +137,8 @@ jobs:
         id: coverage_badge
         if: github.event_name == 'push' && matrix.entry.os == 'ubuntu-latest'
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           LINE_RATE=$(grep -oE '<coverage [^>]*line-rate="[0-9.]+"' coverage/cobertura.xml \
             | grep -oE 'line-rate="[0-9.]+"' | grep -oE '[0-9.]+')
@@ -144,11 +147,21 @@ jobs:
           mkdir -p .github/badges
           printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
             "$PCT" "$COLOR" > .github/badges/coverage.json
+          if git diff --quiet -- .github/badges/coverage.json; then
+            echo "Badge unchanged, skipping"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          BRANCH="coverage-badge/${{ github.run_id }}"
+          git checkout -b "$BRANCH"
           git add .github/badges/coverage.json
-          git diff --cached --quiet || git commit -m "chore: update coverage badge [skip ci]"
-          git push origin "HEAD:${{ github.ref_name }}"
+          git commit -m "chore: update coverage badge [skip ci]"
+          git push origin "$BRANCH"
+          PR_URL=$(gh pr create --title "chore: update coverage badge" \
+            --body "Automated coverage badge update ($PCT%)." \
+            --base "${{ github.ref_name }}" --head "$BRANCH")
+          gh pr merge "$PR_URL" --squash --auto --delete-branch
 
       - name: Test (no default features)
         id: test_no_default_features
