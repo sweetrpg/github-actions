@@ -28,7 +28,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -116,42 +115,24 @@ jobs:
           awk -v pct="$PCT" -v threshold="${{ inputs.coverage-threshold }}" \
             'BEGIN { exit !(pct+0 >= threshold+0) }'
 
+      # Written into coverage/ so the Publish step below carries it to GitHub Pages
+      # alongside the HTML report - avoids committing to the (protected) source branch
+      # entirely, sidestepping both the PR-only ruleset and the fact that GITHUB_TOKEN-
+      # authored pushes/PRs don't trigger further workflow runs (so a badge-update PR's
+      # own required check could never appear, and auto-merge would hang forever - both
+      # discovered the hard way before landing on this approach).
+      - name: Coverage badge
+        id: coverage_badge
+        continue-on-error: true
+        run: |
+          PCT=$(go tool cover -func coverage.out | tail -1 | grep -oE '[0-9]+\.[0-9]+')
+          COLOR=$(awk -v p="$PCT" 'BEGIN { if (p>=80) print "brightgreen"; else if (p>=50) print "yellow"; else print "red" }')
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
+            "$PCT" "$COLOR" > coverage/coverage-badge.json
+
       - name: Publish coverage
         if: inputs.publish-coverage
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./coverage
-
-      # Push-only: PR runs shouldn't open badge-update PRs of their own. Writes a
-      # shields.io endpoint-schema JSON badge; if it changed, opens a small PR (target
-      # branches are protected - no direct pushes allowed) and enables auto-merge, so it
-      # lands once its own required checks pass. continue-on-error: badge updates are
-      # best-effort, never worth failing the job over.
-      - name: Coverage badge
-        id: coverage_badge
-        if: github.event_name == 'push'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PCT=$(go tool cover -func coverage.out | tail -1 | grep -oE '[0-9]+\.[0-9]+')
-          COLOR=$(awk -v p="$PCT" 'BEGIN { if (p>=80) print "brightgreen"; else if (p>=50) print "yellow"; else print "red" }')
-          mkdir -p .github/badges
-          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
-            "$PCT" "$COLOR" > .github/badges/coverage.json
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/badges/coverage.json
-          if git diff --cached --quiet; then
-            echo "Badge unchanged, skipping"
-            exit 0
-          fi
-          BRANCH="coverage-badge/${{ github.run_id }}"
-          git checkout -b "$BRANCH"
-          git commit -m "chore: update coverage badge [skip ci]"
-          git push origin "$BRANCH"
-          PR_URL=$(gh pr create --title "chore: update coverage badge" \
-            --body "Automated coverage badge update ($PCT%)." \
-            --base "${{ github.ref_name }}" --head "$BRANCH")
-          gh pr merge "$PR_URL" --squash --auto --delete-branch
