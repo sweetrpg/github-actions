@@ -77,6 +77,37 @@ jobs:
         run: |
           cargo test ${{ inputs.test-args }}
 
+      - name: Install cargo-tarpaulin
+        id: install_tarpaulin
+        if: matrix.entry.os == 'ubuntu-latest'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+
+      - name: Coverage (tarpaulin)
+        id: coverage
+        if: matrix.entry.os == 'ubuntu-latest'
+        run: |
+          mkdir -p coverage
+          cargo tarpaulin --engine llvm --out Html --out Xml --output-dir coverage | tee coverage/tarpaulin-output.txt
+
+      - name: Coverage summary
+        id: coverage_summary
+        if: matrix.entry.os == 'ubuntu-latest'
+        run: |
+          echo "## Rust coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat coverage/tarpaulin-output.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage artifact
+        id: upload_coverage
+        if: matrix.entry.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.entry.name }}
+          path: coverage/
+
       - name: Test (no default features)
         id: test_no_default_features
         if: inputs.no-default-features-test
