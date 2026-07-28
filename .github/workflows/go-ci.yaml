@@ -78,9 +78,23 @@ jobs:
         env: ${{ fromJson(inputs.test-env) }}
         run: |
           go test -race -coverprofile coverage.out ./...
-          go tool cover -func coverage.out
           mkdir coverage
           go tool cover -html coverage.out -o coverage/coverage.html
+
+      - name: Coverage summary
+        id: coverage_summary
+        run: |
+          echo "## Go coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          go tool cover -func coverage.out >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage artifact
+        id: upload_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.entry.name }}
+          path: coverage/
 
       - name: Publish coverage
         if: inputs.publish-coverage
