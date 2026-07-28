@@ -20,6 +20,11 @@ on:
         description: "Publish the coverage report to GitHub Pages."
         type: boolean
         default: true
+      coverage-threshold:
+        description: "Minimum total coverage percentage. Warn-only (continue-on-error) -
+          does not block merges."
+        type: string
+        default: "0"
 
 permissions:
   contents: write
@@ -97,6 +102,18 @@ jobs:
         with:
           name: coverage-report-${{ matrix.entry.name }}
           path: coverage/
+
+      # Separate step, after the summary/artifact are already generated, so a
+      # below-threshold result never prevents those from being produced. Warn-only:
+      # continue-on-error means this never blocks the job, only shows as a flagged step.
+      - name: Coverage threshold
+        id: coverage_threshold
+        continue-on-error: true
+        run: |
+          PCT=$(go tool cover -func coverage.out | tail -1 | grep -oE '[0-9]+\.[0-9]+')
+          echo "Coverage: ${PCT}% (threshold: ${{ inputs.coverage-threshold }}%)"
+          awk -v pct="$PCT" -v threshold="${{ inputs.coverage-threshold }}" \
+            'BEGIN { exit !(pct+0 >= threshold+0) }'
 
       - name: Publish coverage
         if: inputs.publish-coverage

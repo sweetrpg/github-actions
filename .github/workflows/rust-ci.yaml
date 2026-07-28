@@ -27,6 +27,11 @@ on:
         default: >-
           [{"name": "Linux", "os": "ubuntu-latest"},
            {"name": "macOS (Apple Silicon)", "os": "macos-latest"}]
+      coverage-threshold:
+        description: "Minimum total coverage percentage. Warn-only (continue-on-error) -
+          does not block merges."
+        type: string
+        default: "0"
 
 permissions:
   contents: read
@@ -107,6 +112,21 @@ jobs:
         with:
           name: coverage-report-${{ matrix.entry.name }}
           path: coverage/
+
+      # Separate step, after the summary/artifact are already generated, so a
+      # below-threshold result never prevents those from being produced. Warn-only:
+      # continue-on-error means this never blocks the job, only shows as a flagged step.
+      - name: Coverage threshold
+        id: coverage_threshold
+        if: matrix.entry.os == 'ubuntu-latest'
+        continue-on-error: true
+        run: |
+          LINE_RATE=$(grep -oE '<coverage [^>]*line-rate="[0-9.]+"' coverage/cobertura.xml \
+            | grep -oE 'line-rate="[0-9.]+"' | grep -oE '[0-9.]+')
+          PCT=$(awk -v r="$LINE_RATE" 'BEGIN { printf "%.2f", r*100 }')
+          echo "Coverage: ${PCT}% (threshold: ${{ inputs.coverage-threshold }}%)"
+          awk -v pct="$PCT" -v threshold="${{ inputs.coverage-threshold }}" \
+            'BEGIN { exit !(pct+0 >= threshold+0) }'
 
       - name: Test (no default features)
         id: test_no_default_features
