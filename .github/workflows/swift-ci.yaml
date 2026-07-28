@@ -26,7 +26,9 @@ on:
 permissions:
   contents: write
 
-concurrency: ci
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -75,7 +77,6 @@ jobs:
       # instead of failing the whole job - it's diagnostic tooling, not the test itself.
       - name: Export coverage
         id: coverage
-        if: inputs.publish-coverage
         continue-on-error: true
         run: |
           BIN_PATH="$(swift build --show-bin-path)"
@@ -83,10 +84,32 @@ jobs:
           if [ -z "$XCTEST_BIN" ]; then
             XCTEST_BIN=$(find "$BIN_PATH" -name "*.xctest" -type d | head -n1)/Contents/MacOS/*
           fi
+          PROFDATA="$BIN_PATH/codecov/default.profdata"
+          echo "xctest_bin=$XCTEST_BIN" >> "$GITHUB_OUTPUT"
+          echo "profdata=$PROFDATA" >> "$GITHUB_OUTPUT"
+          mkdir -p coverage
           llvm-cov export -format=lcov "$XCTEST_BIN" \
-            -instr-profile="$BIN_PATH/codecov/default.profdata" > coverage.lcov
-          mkdir coverage
-          genhtml coverage.lcov --output-directory coverage
+            -instr-profile="$PROFDATA" > coverage/coverage.lcov
+          genhtml coverage/coverage.lcov --output-directory coverage
+
+      - name: Coverage summary
+        id: coverage_summary
+        if: steps.coverage.outcome == 'success'
+        continue-on-error: true
+        run: |
+          echo "## Swift coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          llvm-cov report "${{ steps.coverage.outputs.xctest_bin }}" \
+            -instr-profile="${{ steps.coverage.outputs.profdata }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage artifact
+        id: upload_coverage
+        if: steps.coverage.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.entry.name }}
+          path: coverage/
 
       - name: Publish coverage
         if: inputs.publish-coverage && steps.coverage.outcome == 'success'
