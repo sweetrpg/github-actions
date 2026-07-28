@@ -138,3 +138,24 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./coverage
+
+      # Push-only: PR runs shouldn't write commits. Writes a shields.io endpoint-schema
+      # JSON badge and commits it back so READMEs can reference it via
+      # img.shields.io/endpoint. continue-on-error since a badge push racing another
+      # push to the same branch is a rejected, not fatal, non-fast-forward.
+      - name: Coverage badge
+        id: coverage_badge
+        if: github.event_name == 'push' && steps.coverage.outcome == 'success'
+        continue-on-error: true
+        run: |
+          read -r LF LH < <(awk -F: '/^LF:/{lf+=$2} /^LH:/{lh+=$2} END{print lf, lh}' coverage/coverage.lcov)
+          PCT=$(awk -v lf="$LF" -v lh="$LH" 'BEGIN { if (lf>0) printf "%.2f", (lh/lf)*100; else print "0.00" }')
+          COLOR=$(awk -v p="$PCT" 'BEGIN { if (p>=80) print "brightgreen"; else if (p>=50) print "yellow"; else print "red" }')
+          mkdir -p .github/badges
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
+            "$PCT" "$COLOR" > .github/badges/coverage.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/badges/coverage.json
+          git diff --cached --quiet || git commit -m "chore: update coverage badge [skip ci]"
+          git push origin "HEAD:${{ github.ref_name }}"
