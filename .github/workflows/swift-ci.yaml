@@ -71,10 +71,11 @@ jobs:
           swift test --enable-code-coverage ${{ inputs.test-args }}
 
       # Best-effort: locates the .xctest binary swift test just produced and exports an
-      # lcov report from its embedded coverage data, then renders HTML via genhtml (same
-      # lcov toolchain already available on the ubuntu-latest runner image). Swift's exact
-      # output layout has moved between toolchain versions before, so a failure here warns
-      # instead of failing the whole job - it's diagnostic tooling, not the test itself.
+      # lcov report plus an HTML report (both via llvm-cov, already part of the Swift
+      # toolchain - no extra install needed, unlike genhtml/lcov which aren't preinstalled
+      # on the runner image). Swift's exact output layout has moved between toolchain
+      # versions before, so a failure here warns instead of failing the whole job - it's
+      # diagnostic tooling, not the test itself.
       - name: Export coverage
         id: coverage
         continue-on-error: true
@@ -90,7 +91,8 @@ jobs:
           mkdir -p coverage
           llvm-cov export -format=lcov "$XCTEST_BIN" \
             -instr-profile="$PROFDATA" > coverage/coverage.lcov
-          genhtml coverage/coverage.lcov --output-directory coverage
+          llvm-cov show "$XCTEST_BIN" -instr-profile="$PROFDATA" \
+            -format=html -output-dir=coverage
 
       - name: Coverage summary
         id: coverage_summary
