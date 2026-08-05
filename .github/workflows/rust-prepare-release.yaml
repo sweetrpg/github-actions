@@ -67,7 +67,11 @@ jobs:
       - name: Determine next version
         id: version
         run: |
-          NEXT_VERSION=$(git-cliff --bumped-version)
+          # --unreleased is required: without it, git-cliff processes the entire release
+          # history rather than just commits since the last tag, and on some histories
+          # (observed on catalog-web, criss-cross merge topology into develop) it concludes
+          # "nothing to bump" and silently reuses the last tag's version instead of erroring.
+          NEXT_VERSION=$(git-cliff --bumped-version --unreleased)
           echo "version=${NEXT_VERSION#v}" >> "$GITHUB_OUTPUT"
 
       - name: Bump Cargo.toml
