@@ -6,7 +6,7 @@ on:
       swift-version:
         description: "Swift toolchain version to build and test with."
         type: string
-        default: "6.0"
+        default: "6.3"
       matrix:
         description: "JSON array of `{name, os}` matrix entries to validate on. Defaults to Linux."
         type: string
@@ -56,7 +56,7 @@ jobs:
 
       - name: Install Swift
         id: install_swift
-        uses: swift-actions/setup-swift@v2
+        uses: swift-actions/setup-swift@v3
         with:
           swift-version: ${{ inputs.swift-version }}
 
