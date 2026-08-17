@@ -61,6 +61,7 @@ jobs:
         uses: swift-actions/setup-swift@v3
         with:
           swift-version: ${{ inputs.swift-version }}
+          skip-verify-signature: true
 
       - name: Install git-cliff
         id: install_git_cliff
