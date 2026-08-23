@@ -54,11 +54,32 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      # setup-swift@v3 fails when swiftly resolves a loose "x.y" request to a newer
+      # patch (e.g. 6.2 -> 6.2.4), so pin the latest matching patch release ourselves.
+      - name: Resolve Swift version
+        id: resolve_swift_version
+        run: |
+          requested="${{ inputs.swift-version }}"
+          if [[ "$requested" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$requested" == "latest" ]]; then
+            echo "version=$requested" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          resolved=$(git ls-remote --tags https://github.com/swiftlang/swift.git \
+            "refs/tags/swift-${requested}.*-RELEASE" \
+            | sed -E 's|.*swift-([0-9]+\.[0-9]+\.[0-9]+)-RELEASE.*|\1|' \
+            | sort -uV | tail -1)
+          if [ -z "$resolved" ]; then
+            echo "::warning::No patch release found for Swift ${requested}; passing through unchanged"
+            echo "version=$requested" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "version=$resolved" >> "$GITHUB_OUTPUT"
+
       - name: Install Swift
         id: install_swift
         uses: swift-actions/setup-swift@v3
         with:
-          swift-version: ${{ inputs.swift-version }}
+          swift-version: ${{ steps.resolve_swift_version.outputs.version }}
           skip-verify-signature: true
 
       - name: Check formatting
