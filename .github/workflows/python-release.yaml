@@ -23,11 +23,17 @@ on:
         description: "Branch to merge the release ref back into after publishing (e.g. develop). Empty to skip."
         type: string
         default: "develop"
+      publish-to-pypi:
+        description: "Build sdist/wheel and publish to PyPI using secrets.PYPI_TOKEN."
+        type: boolean
+        default: false
     secrets:
       SRPG_CI_APP_ID:
         required: true
       SRPG_CI_PRIVATE_KEY:
         required: true
+      PYPI_TOKEN:
+        required: false
 
 permissions:
   contents: write
@@ -89,10 +95,21 @@ jobs:
       - name: Test
         run: ${{ inputs.test-command }}
 
-      # No PyPI publish step - sweetrpg-assets-web (the first consumer of this workflow) sets
-      # upload_to_pypi = False in setup.cfg and ships as a Docker image, not a published package.
-      # A future Python service that does publish to PyPI should add that as its own step in a
-      # fork of this workflow rather than bolt an optional path onto this one speculatively.
+      - name: Build sdist/wheel
+        id: build
+        if: inputs.publish-to-pypi
+        run: |
+          uv pip install build
+          python -m build
+
+      - name: Publish to PyPI
+        id: publish_pypi
+        if: inputs.publish-to-pypi
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_TOKEN }}
+
       - name: Generate changelog for this tag
         id: changelog
         run: |
