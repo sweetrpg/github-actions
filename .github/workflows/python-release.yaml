@@ -24,16 +24,7 @@ on:
         type: string
         default: "develop"
       publish-to-pypi:
-        description: "Build sdist/wheel and publish to PyPI."
-        type: boolean
-        default: false
-      pypi-trusted-publishing:
-        description: >
-          Authenticate to PyPI via OIDC Trusted Publishing instead of secrets.PYPI_TOKEN.
-          Requires a Trusted Publisher configured on the PyPI project (Publishing settings:
-          owner/repo = this repo, workflow filename = the caller's own .yml/.yaml under
-          .github/workflows/, matching exactly - PyPI checks the calling workflow's path, not
-          this reusable one's). No effect unless publish-to-pypi is also true.
+        description: "Build sdist/wheel and publish to PyPI using secrets.PYPI_TOKEN."
         type: boolean
         default: false
     secrets:
@@ -46,11 +37,6 @@ on:
 
 permissions:
   contents: write
-  # Unused unless a caller sets pypi-trusted-publishing: true - granting it here is a no-op
-  # otherwise, but the reusable workflow can't request per-input permissions (permissions:
-  # blocks aren't conditional), and a caller's own permissions: block is a ceiling that would
-  # otherwise silently deny this even when requested.
-  id-token: write
 
 concurrency: release
 
@@ -116,19 +102,9 @@ jobs:
           uv pip install build
           python -m build
 
-      # Trusted Publishing (OIDC): omit user/password entirely - gh-action-pypi-publish
-      # authenticates via the job's OIDC token when none is given, and PyPI validates that
-      # token against the project's configured Trusted Publisher (repo + this exact caller
-      # workflow filename). Token-based auth (the default): explicit password disables OIDC
-      # even if id-token: write is granted, per the action's own precedence.
-      - name: Publish to PyPI (trusted publishing)
-        id: publish_pypi_trusted
-        if: inputs.publish-to-pypi && inputs.pypi-trusted-publishing
-        uses: pypa/gh-action-pypi-publish@release/v1
-
-      - name: Publish to PyPI (API token)
-        id: publish_pypi_token
-        if: inputs.publish-to-pypi && !inputs.pypi-trusted-publishing
+      - name: Publish to PyPI
+        id: publish_pypi
+        if: inputs.publish-to-pypi
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
