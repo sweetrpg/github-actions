@@ -32,7 +32,8 @@ concurrency: release
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Pinned: swiftly 1.1.0 does not support the ubuntu-latest (26.04) image.
+    runs-on: ubuntu-24.04
     steps:
       - name: Generate token
         id: ci_token

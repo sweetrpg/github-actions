@@ -10,8 +10,9 @@ on:
       matrix:
         description: "JSON array of `{name, os}` matrix entries to validate on. Defaults to Linux."
         type: string
+        # Pinned: ubuntu-latest moved to 26.04, which swiftly 1.1.0 rejects ("Unsupported Linux platform").
         default: >-
-          [{"name": "Linux", "os": "ubuntu-latest"}]
+          [{"name": "Linux", "os": "ubuntu-24.04"}]
       test-args:
         description: "Extra arguments appended to the `swift test` invocation."
         type: string
