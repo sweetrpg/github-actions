@@ -153,6 +153,9 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./coverage
+          # The lcov export is ~12 MB per run; keep only the HTML and badge in gh-pages.
+          exclude_assets: '.github,*.lcov'
+          force_orphan: true
 
       - name: Test (no default features)
         id: test_no_default_features
