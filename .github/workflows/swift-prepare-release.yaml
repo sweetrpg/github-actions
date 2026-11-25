@@ -23,6 +23,10 @@ on:
         description: "Space-separated list of files git-cliff modifies, committed as the release commit."
         type: string
         default: "CHANGELOG.md"
+      ci-workflow:
+        description: "CI workflow file whose develop-head run must succeed before a release is prepared."
+        type: string
+        default: "ci.yaml"
     secrets:
       SRPG_CI_APP_ID:
         required: true
@@ -36,7 +40,25 @@ permissions:
 concurrency: release
 
 jobs:
+  require-green-develop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate token
+        id: ci_token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.SRPG_CI_APP_ID }}
+          private-key: ${{ secrets.SRPG_CI_PRIVATE_KEY }}
+
+      - name: Require green develop CI
+        uses: sweetrpg/github-actions/.github/actions/require-green-develop@master
+        with:
+          repo: ${{ github.repository }}
+          ci-workflow: ${{ inputs.ci-workflow }}
+          token: ${{ steps.ci_token.outputs.token }}
+
   prepare:
+    needs: require-green-develop
     runs-on: ubuntu-latest
     steps:
       - name: Generate token

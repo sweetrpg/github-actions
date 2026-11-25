@@ -1,0 +1,24 @@
+name: Require green develop CI
+description: Fails unless the CI run for develop's head commit completed successfully. Fails closed when no run exists.
+
+inputs:
+  repo:
+    description: "owner/name of the caller repository."
+    required: true
+  ci-workflow:
+    description: "File name of the CI workflow under .github/workflows (e.g. ci.yaml)."
+    required: true
+  token:
+    description: "Token with contents:read and actions:read on the repository."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check develop CI result
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ inputs.repo }}
+        CI_WORKFLOW: ${{ inputs.ci-workflow }}
+      run: "$GITHUB_ACTION_PATH/check-develop-ci.sh"
