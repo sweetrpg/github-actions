@@ -1,5 +1,5 @@
 name: Require green develop CI
-description: Fails unless the CI run for develop's head commit completed successfully. Fails closed when no run exists.
+description: Fails unless the named CI and image build runs for develop's head commit completed successfully. Fails closed when a named run is missing.
 
 inputs:
   repo:
@@ -8,6 +8,10 @@ inputs:
   ci-workflow:
     description: "File name of the CI workflow under .github/workflows (e.g. ci.yaml)."
     required: true
+  image-workflow:
+    description: "File name of the image build workflow (e.g. docker-build.yml). Empty when the repo builds no image."
+    required: false
+    default: ""
   token:
     description: "Token with contents:read and actions:read on the repository."
     required: true
@@ -21,4 +25,5 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         REPO: ${{ inputs.repo }}
         CI_WORKFLOW: ${{ inputs.ci-workflow }}
+        IMAGE_WORKFLOW: ${{ inputs.image-workflow }}
       run: "$GITHUB_ACTION_PATH/check-develop-ci.sh"
